@@ -1,5 +1,8 @@
 # Stock Intelligence & Decision Platform
 
+> **Interview-ready summary:** see [CASE_STUDY.md](CASE_STUDY.md) for the problem, root causes, decisions, measured results and limitations.
+
+
 A deterministic, multi-layered financial intelligence engine and interactive research workstation. The platform combines pure mathematical scoring models across technicals, fundamentals, valuations, and risk with an optional Gemini multi-agent synthesis layer.
 
 ---
@@ -66,9 +69,10 @@ A deterministic, multi-layered financial intelligence engine and interactive res
    - Projects mathematical Bull, Base, and Bear scenarios with explicit catalyst triggers and invalidation conditions.
 
 6. **Agent Orchestrator (`server/ai/agentOrchestrator.ts`)**
-   - Runs a multi-agent analytical pipeline (Technical, Valuation, Risk, and Verification agents).
-   - If a `GEMINI_API_KEY` is provided, queries Gemini for synthesis.
-   - If no key is present, gracefully falls back to deterministic synthesis generated directly from the mathematical outputs.
+   - Produces per-pillar findings (Fundamental, Technical, News, Valuation, Risk) plus a verification note.
+   - If a `GEMINI_API_KEY` is provided, Gemini writes the narrative synthesis. Its output is validated field by field: any missing or invalid agent falls back to the value computed from the deterministic engines.
+   - **Verification is rule-based, not AI-based.** The `VERIFIED_CONCORDANT` / `MIXED_SIGNALS` / `DIVERGENT` status always comes from the decision engine. If Gemini suggests a different status, the rule-based status wins and the disagreement is noted.
+   - If no key is present, or Gemini errors, findings are generated directly from the mathematical outputs (no hardcoded stances).
 
 7. **In-Memory Cache & Event Bus (`server/data/cacheAndEventBus.ts`)**
    - Non-blocking in-process TTL cache with honest telemetry tracking (real hits, misses, and dynamic hit-rate).
