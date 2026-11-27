@@ -6,6 +6,7 @@ import { calculateValuationScore } from '../server/engines/valuationEngine';
 import { calculateRiskProfile } from '../server/engines/riskEngine';
 import { calculateDecisionEngine } from '../server/engines/decisionEngine';
 import { cache } from '../server/data/cacheAndEventBus';
+import { buildDeterministicFindings, reconcileWithDeterministic } from '../server/ai/agentOrchestrator';
 import { HistoricalCandle, FundamentalMetrics, ValuationMetrics } from '../src/types';
 
 describe('Deterministic Financial Engines & In-Memory Cache', () => {
@@ -322,3 +323,57 @@ describe('Deterministic Financial Engines & In-Memory Cache', () => {
     assert.equal(metrics.hitRate, 50, '1 hit out of 2 total requests = 50.0% hit rate');
   });
 });
+
+describe('AI orchestrator: deterministic findings and verification precedence', () => {
+  // Minimal bearish data fixture: only the fields the deterministic builder reads.
+  const bearishData: any = {
+    scores: { fundamentalScore: 30, technicalScore: 25, newsScore: 20 },
+    fundamentals: {
+      growth: { revenueGrowthYoY: -4 },
+      profitability: { roe: 6 },
+      financialHealth: { debtToEquity: 2.4 },
+      quality: { piotroskiFScore: 3 },
+    },
+    technicals: {
+      movingAverages: { trendBias: 'Bearish' },
+      rsi: 31,
+      rsiSignal: 'Oversold',
+      macd: { histogram: -1.2 },
+    },
+    news: [],
+    valuation: { valuationStance: 'Overvalued', pe: 40, peHistorical5YrAvg: 22, pegRatio: 3, intrinsicValueDCF: 100 },
+    risk: { overallRisk: 'HIGH', majorRisks: ['Leverage', 'Margin pressure'], volatilityBeta: 1.6 },
+    decision: { verificationStatus: 'DIVERGENT', conflictsDetected: ['Weak fundamentals vs. stretched valuation.'] },
+  };
+
+  it('Deterministic findings follow the computed scores (no hardcoded Bullish)', () => {
+    const f = buildDeterministicFindings(bearishData);
+    assert.equal(f.fundamentalAgent.stance, 'Bearish');
+    assert.equal(f.technicalAgent.stance, 'Bearish');
+    assert.equal(f.valuationAgent.stance, 'Expensive');
+    assert.equal(f.riskAgent.stance, 'Elevated Risk');
+    assert.equal(f.verificationAgent.status, 'DIVERGENT');
+  });
+
+  it('Rule-based verification status overrides a contradicting Gemini status', () => {
+    const det = buildDeterministicFindings(bearishData);
+    const merged = reconcileWithDeterministic(
+      { verificationAgent: { status: 'VERIFIED_CONCORDANT', notes: 'All good.' } },
+      det,
+    );
+    assert.equal(merged.verificationAgent.status, 'DIVERGENT');
+    assert.match(merged.verificationAgent.notes, /rule-based verification takes precedence/);
+  });
+
+  it('Missing or invalid Gemini agents fall back to deterministic values, not invented opinions', () => {
+    const det = buildDeterministicFindings(bearishData);
+    const merged = reconcileWithDeterministic(
+      { fundamentalAgent: { stance: 'Moonshot', summary: 'x' }, technicalAgent: undefined },
+      det,
+    );
+    assert.equal(merged.fundamentalAgent.stance, 'Bearish');
+    assert.equal(merged.technicalAgent.stance, 'Bearish');
+    assert.equal(merged.riskAgent.stance, 'Elevated Risk');
+  });
+});
+
